@@ -14,7 +14,7 @@ ARCHIVO    := A_ScriptDir . "\facturas.txt"
 DELAY_TECLA := 80        ; ms entre cada tecla
 DELAY_CAMPO := 120       ; ms al pasar de campo
 DELAY_ENTER := 150       ; ms entre Enters del inicio
-ORACLE_WIN  := "Oracle Forms Runtime"
+ORACLE_WIN  := "ahk_exe ifrun60.exe"
 
 ; ── TECLA DE PARADA ──────────────────────────────────────────
 Esc::

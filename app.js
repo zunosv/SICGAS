@@ -99,7 +99,7 @@ function mostrarBombas() {
 }
 
 // ── GENERAR FACTURAS (BAC primero, luego Efectivo) ────────────────────────────
-function generarFacturas() {
+function generarFacturas(soloPositivas = false) {
   if (!bombas.length) { alert("Primero lee el PDF."); return; }
 
   const bacInput  = parseFloat(document.getElementById("montoBAC").value) || 0;
@@ -109,8 +109,9 @@ function generarFacturas() {
   const RESERVA_SABOR = 200.00; // $200 sin facturar por sabor
 
   // Calcular cuánto facturar por sabor (total positivo - $200 de reserva)
+  const bombasAUsar = soloPositivas ? bombas.filter(b => b.monto > 0) : bombas;
   const totalPorSabor = { S: 0, R: 0, D: 0 };
-  bombas.forEach(b => { if (b.monto > 0) totalPorSabor[b.sabor] += b.monto; });
+  bombasAUsar.forEach(b => { if (b.monto > 0) totalPorSabor[b.sabor] += b.monto; });
 
   const facturablePorSabor = {};
   ["S","R","D"].forEach(s => {
@@ -127,7 +128,7 @@ function generarFacturas() {
     return;
   }
 
-  bombas.forEach(b => {
+  bombasAUsar.forEach(b => {
     // Monto real de esta bomba limitado a lo que queda facturable de su sabor
     let monto = Math.min(
       Math.round(b.monto * 100) / 100,
@@ -169,7 +170,8 @@ function generarFacturas() {
   const resS    = Math.min(totalPorSabor["S"], RESERVA_SABOR).toFixed(2);
   const resR    = Math.min(totalPorSabor["R"], RESERVA_SABOR).toFixed(2);
   const resD    = Math.min(totalPorSabor["D"], RESERVA_SABOR).toFixed(2);
-  setStatus(`✅ ${facturas.length} facturas — BAC: $${totalB.toFixed(2)} | Efectivo: $${totalE.toFixed(2)} | Sin facturar → S:$${resS} R:$${resR} D:$${resD}`);
+  const modo = soloPositivas ? ' [Solo positivas]' : '';
+  setStatus(`✅ ${facturas.length} facturas${modo} — BAC: $${totalB.toFixed(2)} | Efectivo: $${totalE.toFixed(2)} | Sin facturar → S:$${resS} R:$${resR} D:$${resD}`);
   mostrarFacturas();
 }
 

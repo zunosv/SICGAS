@@ -81,22 +81,15 @@
   #pdfFile:hover { border-color:var(--accent); }
 
   /* BAC INPUT */
-  .bac-label {
-    font-size:13px; letter-spacing:1px; text-transform:uppercase;
-    color:var(--bac); white-space:nowrap;
-  }
+  .bac-label { font-size:13px; letter-spacing:1px; text-transform:uppercase; color:var(--bac); white-space:nowrap; }
   #montoBAC {
     width:160px; background:#0d0f12;
     border:1px solid var(--bac); border-radius:3px;
     color:var(--bac); padding:10px 14px;
-    font-family:'Share Tech Mono',monospace; font-size:16px;
-    outline:none;
+    font-family:'Share Tech Mono',monospace; font-size:16px; outline:none;
   }
   #montoBAC:focus { box-shadow:0 0 0 2px rgba(167,139,250,.3); }
-  .bac-hint {
-    font-size:12px; color:var(--muted); margin-top:6px;
-    font-family:'Share Tech Mono',monospace;
-  }
+  .bac-hint { font-size:12px; color:var(--muted); margin-top:6px; font-family:'Share Tech Mono',monospace; }
 
   /* BUTTONS */
   .btn {
@@ -105,11 +98,22 @@
     font-weight:700; letter-spacing:1px; text-transform:uppercase;
     border:none; border-radius:3px; cursor:pointer;
     transition:opacity .15s, transform .1s;
+    text-decoration:none; display:inline-flex; align-items:center; gap:8px;
   }
   .btn:active  { transform:scale(.97); }
-  .btn-primary  { background:var(--accent); color:#000; }
-  .btn-secondary{ background:var(--blue);   color:#fff; }
-  .btn-export   { background:var(--green);  color:#000; }
+  .btn-primary   { background:var(--accent); color:#000; }
+  .btn-secondary { background:var(--blue);   color:#fff; }
+  .btn-positive  { background:#2dd4bf;       color:#000; }
+  .btn-export    { background:var(--green);  color:#000; }
+  .btn-download  {
+    background: transparent;
+    color: var(--text);
+    border: 1px solid var(--border);
+    padding: 10px 20px;
+    font-size:14px;
+  }
+  .btn-download:hover { border-color:var(--accent); color:var(--accent); }
+  .btn-download svg   { flex-shrink:0; }
 
   /* STATUS */
   #status {
@@ -126,26 +130,29 @@
     display:flex; align-items:center; gap:8px; flex-wrap:wrap;
   }
 
-  /* BADGES */
   .badge {
     font-size:11px; font-weight:700; letter-spacing:.5px;
     padding:2px 8px; border-radius:2px; text-transform:uppercase;
   }
-  .badge.bac { background:rgba(167,139,250,.15); color:var(--bac); border:1px solid var(--bac); }
+  .badge.bac { background:rgba(167,139,250,.15); color:var(--bac);   border:1px solid var(--bac); }
   .badge.ef  { background:rgba(57,217,138,.12);  color:var(--green); border:1px solid var(--green); }
 
-  /* TABLE */
   table { width:100%; border-collapse:collapse; font-size:14px; }
   thead tr { background:#1c2030; }
-  th {
-    text-align:left; padding:7px 12px;
-    font-size:11px; letter-spacing:1px; text-transform:uppercase; color:var(--muted);
-  }
+  th { text-align:left; padding:7px 12px; font-size:11px; letter-spacing:1px; text-transform:uppercase; color:var(--muted); }
   td { padding:6px 12px; border-bottom:1px solid var(--border); font-family:'Share Tech Mono',monospace; font-size:13px; }
   tr:hover td { background:#1a1f2e; }
   tr.negativo td  { color:var(--red); }
   tr.fila-bac td:last-child { color:var(--bac); }
   tr.fila-ef  td:last-child { color:var(--green); }
+
+  /* DOWNLOAD CARD */
+  .download-info {
+    font-size:13px; color:var(--muted);
+    font-family:'Share Tech Mono',monospace;
+    margin-top:10px; line-height:1.6;
+  }
+  .download-info span { color:var(--accent); }
 </style>
 </head>
 <body>
@@ -159,6 +166,27 @@
 </header>
 
 <main>
+
+  <!-- DESCARGA ROBOT -->
+  <div class="card">
+    <div class="card-title">🤖 Descargar Robot AutoHotkey</div>
+    <div class="row">
+      <a class="btn btn-download"
+         href="https://github.com/saky983/SICGAS/raw/main/SICGAS-ROBOT.exe"
+         download="SICGAS-ROBOT.exe">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="7 10 12 15 17 10"/>
+          <line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        SICGAS-ROBOT.exe
+      </a>
+    </div>
+    <div class="download-info">
+      Coloca el .exe en la misma carpeta que <span>facturas.txt</span><br>
+      Presiona <span>Win+F10</span> para iniciar · <span>ESC</span> para detener
+    </div>
+  </div>
 
   <!-- PASO 1: PDF -->
   <div class="card">
@@ -184,7 +212,8 @@
   <div class="card">
     <div class="card-title">⚙️ 3 · Generar y Exportar</div>
     <div class="row">
-      <button class="btn btn-secondary" onclick="generarFacturas()">Generar Facturas</button>
+      <button class="btn btn-secondary" onclick="generarFacturas(false)">Generar Facturas</button>
+      <button class="btn btn-positive"  onclick="generarFacturas(true)">Solo Positivas</button>
       <button class="btn btn-export"    onclick="exportar()">Exportar Robot TXT</button>
     </div>
   </div>
