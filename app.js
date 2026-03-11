@@ -2,18 +2,11 @@ let bombas   = [];
 let facturas = [];
 
 // ── LEER PDF ──────────────────────────────────────────────────────────────────
-// Estrategia: usar coordenadas X de cada elemento para identificar columnas.
-// Columnas clave del reporte (tolerancia ±25 px):
-//   ID Bomba  → x ≈ 24–65
-//   "Auto Serv." → x ≈ 70–100  (marca que la fila es de bomba, no header/total)
-//   DIF USD LECT. DISP. → x ≈ 700+  (última columna)
-// Producto actual se detecta por tokens SUPER / REGULAR / DIESEL.
-
-const COL_ID_MIN   = 20;
-const COL_ID_MAX   = 70;
-const COL_AUTO_MIN = 70;
-const COL_AUTO_MAX = 110;
-const COL_DIFUSD_MIN = 695; // DIF USD LECT. DISP. empieza ~x=725
+// Estrategia: coordenadas X para identificar columnas.
+//   ID Bomba          → x ≈ 20–70    (primer número pequeño, 1–50)
+//   "Auto Serv."      → x ≈ 70–115   (confirma fila de bomba)
+//   DIF USD (última)  → x ≥ 690      (columna más a la derecha con $)
+// Producto detectado por SUPER / REGULAR / DIESEL en la fila.
 
 async function leerPDF() {
   const file = document.getElementById("pdfFile").files[0];
@@ -25,29 +18,23 @@ async function leerPDF() {
     const typedarray = new Uint8Array(this.result);
     const pdf = await pdfjsLib.getDocument(typedarray).promise;
 
-    // Recopilar todos los items de todas las páginas con coordenadas absolutas
-    // (sumamos offset de página para no mezclar filas entre páginas)
     let todasItems = [];
-    let yOffset = 0;
 
-    for (let i = 1; i <= pdf.numPages; i++) {
-      const page    = await pdf.getPage(i);
-      const vp      = page.getViewport({ scale: 1 });
+    for (let p = 1; p <= pdf.numPages; p++) {
+      const page    = await pdf.getPage(p);
       const content = await page.getTextContent();
+      const vp      = page.getViewport({ scale: 1 });
+
+      // pageIndex*10000 para separar páginas sin mezclar filas
+      const baseY = (p - 1) * 10000;
 
       content.items.forEach(item => {
-        const x = item.transform[4];
-        const y = item.transform[5];
-        todasItems.push({
-          x: Math.round(x),
-          // y invertido: dentro de la página PDF, y crece hacia arriba
-          // usamos (pageHeight - y) + yOffset para ordenar de arriba a abajo
-          y: Math.round((vp.height - y) + yOffset),
-          str: item.str.trim()
-        });
+        const str = (item.str || "").trim();
+        if (!str) return;
+        const x = item.transform[4];                  // x desde izquierda
+        const y = vp.height - item.transform[5];      // y desde arriba (invertido)
+        todasItems.push({ x, y: y + baseY, str, page: p });
       });
-
-      yOffset += vp.height + 50; // separador entre páginas
     }
 
     procesarItems(todasItems);
@@ -55,61 +42,60 @@ async function leerPDF() {
   reader.readAsArrayBuffer(file);
 }
 
-// ── PARSER PRINCIPAL por coordenadas X ────────────────────────────────────────
+// ── PARSER PRINCIPAL ──────────────────────────────────────────────────────────
 function procesarItems(items) {
   bombas = [];
   let productoActual = "";
 
-  // Agrupar por fila (misma Y aproximada, tolerancia 4px)
-  const rowMap = {};
+  // — Agrupar ítems en filas por proximidad Y (tolerancia 6px) ——————————————
+  // Usamos array de {yRef, items[]} en vez de object keys para evitar
+  // bugs de comparación string vs number
+  const filas = [];
   items.forEach(item => {
-    if (!item.str) return;
-    // Buscar fila existente con Y cercana
-    const yKey = Object.keys(rowMap).find(k => Math.abs(k - item.y) <= 4);
-    const key  = yKey !== undefined ? yKey : item.y;
-    if (!rowMap[key]) rowMap[key] = [];
-    rowMap[key].push(item);
+    const fila = filas.find(f => Math.abs(f.yRef - item.y) <= 6);
+    if (fila) {
+      fila.items.push(item);
+    } else {
+      filas.push({ yRef: item.y, items: [item] });
+    }
   });
 
-  // Ordenar filas de arriba a abajo
-  const ySorted = Object.keys(rowMap).map(Number).sort((a, b) => a - b);
+  // Ordenar filas de arriba hacia abajo (y menor = más arriba)
+  filas.sort((a, b) => a.yRef - b.yRef);
 
-  ySorted.forEach(y => {
-    const fila = rowMap[y].sort((a, b) => a.x - b.x);
-    const textos = fila.map(i => i.str).join(" ").toUpperCase();
+  filas.forEach(({ items: fila }) => {
+    // Ordenar elementos de izquierda a derecha
+    fila.sort((a, b) => a.x - b.x);
 
-    // ── Detectar cambio de producto ──────────────────────────────────────────
-    if (/\bSUPER\b/.test(textos) && !/ID BOMBA/.test(textos))   { productoActual = "S"; return; }
-    if (/\bREGULAR\b/.test(textos) && !/ID BOMBA/.test(textos)) { productoActual = "R"; return; }
-    if (/\bDIESEL\b/.test(textos) && !/ID BOMBA/.test(textos))  { productoActual = "D"; return; }
+    const textoFila = fila.map(i => i.str).join(" ").toUpperCase();
+
+    // — Detectar producto activo ————————————————————————————————————————————
+    // La fila "Tipo de SUPER/REGULAR/DIESEL" NO tiene "Auto Serv."
+    if (/\bSUPER\b/.test(textoFila)   && !/AUTO/i.test(textoFila)) { productoActual = "S"; return; }
+    if (/\bREGULAR\b/.test(textoFila) && !/AUTO/i.test(textoFila)) { productoActual = "R"; return; }
+    if (/\bDIESEL\b/.test(textoFila)  && !/AUTO/i.test(textoFila)) { productoActual = "D"; return; }
 
     if (!productoActual) return;
 
-    // ── Verificar que la fila tenga "Auto Serv." (columna tipo servicio) ─────
-    const tieneAutoServ = fila.some(
-      i => i.x >= COL_AUTO_MIN && i.x <= COL_AUTO_MAX && /auto/i.test(i.str)
-    );
-    if (!tieneAutoServ) return;
+    // — La fila debe contener "Auto Serv." (x entre 70 y 115) —————————————
+    const tieneAuto = fila.some(i => i.x >= 70 && i.x <= 115 && /auto/i.test(i.str));
+    if (!tieneAuto) return;
 
-    // ── Extraer ID de bomba (columna x ≈ 20–70) ──────────────────────────────
-    const itemId = fila.find(
-      i => i.x >= COL_ID_MIN && i.x <= COL_ID_MAX && /^\d+$/.test(i.str)
-    );
-    if (!itemId) return;
-    const bomba = parseInt(itemId.str);
-    if (isNaN(bomba) || bomba <= 0 || bomba > 50) return;
+    // — ID de bomba: número entero 1–50 en x entre 20 y 70 ————————————————
+    const idItem = fila.find(i => i.x >= 20 && i.x <= 70 && /^\d+$/.test(i.str));
+    if (!idItem) return;
+    const bomba = parseInt(idItem.str, 10);
+    if (isNaN(bomba) || bomba < 1 || bomba > 50) return;
 
-    // ── Extraer DIF USD LECT. DISP. (columna x ≥ 695) ───────────────────────
-    // Puede ser "$0.00" o "-$12.50" o "12.50"
-    const itemDifUsd = fila.filter(i => i.x >= COL_DIFUSD_MIN)
-                           .sort((a, b) => b.x - a.x)[0]; // la más a la derecha
-    if (!itemDifUsd) return;
+    // — DIF USD: el ítem más a la derecha con x ≥ 690 ————————————————————
+    const difItems = fila.filter(i => i.x >= 690);
+    if (!difItems.length) return;
+    difItems.sort((a, b) => b.x - a.x);
+    const usdStr = difItems[0].str.replace(/[$,\s]/g, "");
+    const monto  = parseFloat(usdStr);
+    if (isNaN(monto)) return;
 
-    const usdStr  = itemDifUsd.str.replace(/[$,]/g, "").trim();
-    const usdDif  = parseFloat(usdStr);
-    if (isNaN(usdDif)) return;
-
-    bombas.push({ bomba, sabor: productoActual, monto: usdDif });
+    bombas.push({ bomba, sabor: productoActual, monto });
   });
 
   if (bombas.length === 0) {
