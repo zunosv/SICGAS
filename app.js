@@ -5,29 +5,49 @@ let facturas = [];
 async function leerPDF() {
   const file = document.getElementById("pdfFile").files[0];
   if (!file) { alert("Selecciona un archivo PDF primero."); return; }
-  setStatus("Leyendo PDF…");
 
-  const typedarray = await file.arrayBuffer().then(b => new Uint8Array(b));
-  const pdf = await pdfjsLib.getDocument({ data: typedarray }).promise;
+  setStatus("📄 Cargando archivo…");
 
-  // Recolectar todos los items de todas las páginas
+  // FileReader funciona en todos los navegadores incluyendo Android
+  const typedarray = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload  = e => resolve(new Uint8Array(e.target.result));
+    reader.onerror = () => reject(new Error("No se pudo leer el archivo"));
+    reader.readAsArrayBuffer(file);
+  });
+
+  setStatus("🔍 Procesando PDF…");
+
+  let pdf;
+  try {
+    pdf = await pdfjsLib.getDocument({ data: typedarray }).promise;
+  } catch (e) {
+    setStatus("❌ Error al abrir PDF: " + e.message);
+    return;
+  }
+
+  setStatus(`📑 ${pdf.numPages} páginas encontradas, extrayendo texto…`);
+
   const allItems = [];
 
   for (let p = 1; p <= pdf.numPages; p++) {
     const page    = await pdf.getPage(p);
     const vp      = page.getViewport({ scale: 1 });
     const content = await page.getTextContent();
-    const baseY   = (p - 1) * 5000; // offset para separar páginas
+    const baseY   = (p - 1) * 5000;
 
     for (const item of content.items) {
       const str = (item.str || "").trim();
       if (!str) continue;
-      const x = item.transform[4];
-      const y = (vp.height - item.transform[5]) + baseY; // y desde arriba
-      allItems.push({ x, y, str });
+      allItems.push({
+        x: item.transform[4],
+        y: (vp.height - item.transform[5]) + baseY,
+        str
+      });
     }
   }
 
+  setStatus(`🧩 ${allItems.length} elementos extraídos, analizando…`);
   procesarItems(allItems);
 }
 
@@ -35,8 +55,7 @@ async function leerPDF() {
 function procesarItems(allItems) {
   bombas = [];
 
-  // Agrupar en filas: array de {y, items[]}
-  // Cada item nuevo busca si ya hay una fila con y cercana (±8px)
+  // Agrupar en filas por proximidad Y (±8px)
   const filas = [];
   for (const item of allItems) {
     let fila = null;
@@ -47,36 +66,28 @@ function procesarItems(allItems) {
     fila.items.push(item);
   }
 
-  // Ordenar filas de arriba a abajo
   filas.sort((a, b) => a.y - b.y);
 
-  let producto = ""; // S, R, D
+  let producto = "";
 
   for (const fila of filas) {
-    // Ordenar items de izquierda a derecha dentro de la fila
     fila.items.sort((a, b) => a.x - b.x);
-
     const texto = fila.items.map(i => i.str).join(" ").toUpperCase();
 
-    // Detectar sección de producto (fila que contiene SUPER/REGULAR/DIESEL
-    // pero NO contiene "AUTO" — eso la diferencia de filas de datos)
     if (texto.includes("SUPER")   && !texto.includes("AUTO")) { producto = "S"; continue; }
     if (texto.includes("REGULAR") && !texto.includes("AUTO")) { producto = "R"; continue; }
     if (texto.includes("DIESEL")  && !texto.includes("AUTO")) { producto = "D"; continue; }
 
     if (!producto) continue;
 
-    // La fila de bomba DEBE tener "Auto" entre x=70 y x=115
     const tieneAuto = fila.items.some(i => i.x >= 70 && i.x <= 115 && /auto/i.test(i.str));
     if (!tieneAuto) continue;
 
-    // ID de bomba: número entero 1-50, ubicado en x <= 65
     const idItem = fila.items.find(i => i.x <= 65 && /^\d+$/.test(i.str));
     if (!idItem) continue;
     const bomba = parseInt(idItem.str, 10);
     if (bomba < 1 || bomba > 50) continue;
 
-    // DIF USD LECT. DISP.: item más a la derecha (x >= 700)
     const difItems = fila.items.filter(i => i.x >= 700);
     if (!difItems.length) continue;
     difItems.sort((a, b) => b.x - a.x);
@@ -135,7 +146,7 @@ function generarFacturas(soloPositivas = false) {
   ["S","R","D"].forEach(s => {
     facturable[s] = Math.max(0, Math.round((totalPorSabor[s] - RESERVA) * 100) / 100);
   });
-  const restante = { ...facturable };
+  const restante  = { ...facturable };
   const totalFact = Object.values(facturable).reduce((s,v) => s+v, 0);
 
   if (bacRestante > totalFact + 0.01) {
@@ -151,7 +162,7 @@ function generarFacturas(soloPositivas = false) {
 
     if (bacRestante > 0) {
       let bac = Math.min(monto, bacRestante);
-      bac = Math.round(bac * 100) / 100;
+      bac         = Math.round(bac * 100) / 100;
       bacRestante = Math.round((bacRestante - bac) * 100) / 100;
       let tmp = bac;
       while (tmp > 200) { facturas.push({ bomba: b.bomba, sabor: b.sabor, monto: 200, metodo: "B" }); tmp = Math.round((tmp-200)*100)/100; }
@@ -165,12 +176,12 @@ function generarFacturas(soloPositivas = false) {
     if (tmp > 0) facturas.push({ bomba: b.bomba, sabor: b.sabor, monto: tmp, metodo: "E" });
   });
 
-  const tB  = facturas.filter(f=>f.metodo==="B").reduce((s,f)=>s+f.monto,0);
-  const tE  = facturas.filter(f=>f.metodo==="E").reduce((s,f)=>s+f.monto,0);
-  const rS  = Math.min(totalPorSabor.S, RESERVA).toFixed(2);
-  const rR  = Math.min(totalPorSabor.R, RESERVA).toFixed(2);
-  const rD  = Math.min(totalPorSabor.D, RESERVA).toFixed(2);
-  setStatus(`✅ ${facturas.length} facturas${soloPositivas?" [Solo +]":""} — BAC:$${tB.toFixed(2)} | EF:$${tE.toFixed(2)} | Sin facturar→ S:$${rS} R:$${rR} D:$${rD}`);
+  const tB = facturas.filter(f=>f.metodo==="B").reduce((s,f)=>s+f.monto,0);
+  const tE = facturas.filter(f=>f.metodo==="E").reduce((s,f)=>s+f.monto,0);
+  const rS = Math.min(totalPorSabor.S, RESERVA).toFixed(2);
+  const rR = Math.min(totalPorSabor.R, RESERVA).toFixed(2);
+  const rD = Math.min(totalPorSabor.D, RESERVA).toFixed(2);
+  setStatus(`✅ ${facturas.length} facturas${soloPositivas?" [Solo+]":""} — BAC:$${tB.toFixed(2)} | EF:$${tE.toFixed(2)} | Sin facturar→ S:$${rS} R:$${rR} D:$${rD}`);
   mostrarFacturas();
 }
 
@@ -195,7 +206,7 @@ function mostrarFacturas() {
         <thead><tr><th>Bomba</th><th>Método</th><th>Monto</th></tr></thead>
         <tbody>`;
     grupos[tipo].forEach(f => {
-      html += `<tr class="${f.metodo==="B"?"fila-bac":"fila-ef'}">
+      html += `<tr class="${f.metodo==="B"?"fila-bac":"fila-ef"}">
         <td>Bomba ${f.bomba}</td>
         <td><span class="badge ${f.metodo==="B"?"bac":"ef"}">${f.metodo==="B"?"BAC":"Efectivo"}</span></td>
         <td>$${f.monto.toFixed(2)}</td>
