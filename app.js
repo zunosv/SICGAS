@@ -1,110 +1,93 @@
 let bombas   = [];
 let facturas = [];
 
-// ── LEER PDF ──────────────────────────────────────────────────────────────────
-// Estrategia: coordenadas X para identificar columnas.
-//   ID Bomba          → x ≈ 20–70    (primer número pequeño, 1–50)
-//   "Auto Serv."      → x ≈ 70–115   (confirma fila de bomba)
-//   DIF USD (última)  → x ≥ 690      (columna más a la derecha con $)
-// Producto detectado por SUPER / REGULAR / DIESEL en la fila.
-
+// ── LEER PDF CON IA (Claude API) ──────────────────────────────────────────────
 async function leerPDF() {
   const file = document.getElementById("pdfFile").files[0];
   if (!file) { alert("Selecciona un archivo PDF primero."); return; }
-  setStatus("Leyendo PDF…");
+  setStatus("🤖 Analizando PDF con IA…");
 
-  const reader = new FileReader();
-  reader.onload = async function () {
-    const typedarray = new Uint8Array(this.result);
-    const pdf = await pdfjsLib.getDocument(typedarray).promise;
+  // Convertir PDF a base64
+  const base64 = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload  = () => resolve(reader.result.split(",")[1]);
+    reader.onerror = () => reject(new Error("Error al leer el archivo"));
+    reader.readAsDataURL(file);
+  });
 
-    let todasItems = [];
+  try {
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 1000,
+        messages: [{
+          role: "user",
+          content: [
+            {
+              type: "document",
+              source: { type: "base64", media_type: "application/pdf", data: base64 }
+            },
+            {
+              type: "text",
+              text: `Analiza este reporte de lecturas de bomba. 
+Extrae TODAS las filas de bombas (las que tienen "Auto Serv.").
+Para cada fila necesito:
+- ID de bomba (número en la primera columna: 1, 2, 3... etc)
+- Tipo de combustible de su sección: SUPER, REGULAR o DIESEL
+- El valor de la columna "DIF USD LECT. DISP." (última columna del reporte, puede ser $0.00 o un valor con $)
 
-    for (let p = 1; p <= pdf.numPages; p++) {
-      const page    = await pdf.getPage(p);
-      const content = await page.getTextContent();
-      const vp      = page.getViewport({ scale: 1 });
+Responde ÚNICAMENTE con un JSON válido, sin texto adicional, sin bloques de código, sin explicaciones.
+Formato exacto:
+[{"bomba":1,"sabor":"S","monto":0.00},{"bomba":2,"sabor":"S","monto":5.50}]
+Donde sabor: "S"=SUPER, "R"=REGULAR, "D"=DIESEL
+El monto es el número sin el símbolo $, puede ser negativo.`
+            }
+          ]
+        }]
+      })
+    });
 
-      // pageIndex*10000 para separar páginas sin mezclar filas
-      const baseY = (p - 1) * 10000;
+    const data = await response.json();
 
-      content.items.forEach(item => {
-        const str = (item.str || "").trim();
-        if (!str) return;
-        const x = item.transform[4];                  // x desde izquierda
-        const y = vp.height - item.transform[5];      // y desde arriba (invertido)
-        todasItems.push({ x, y: y + baseY, str, page: p });
-      });
+    if (!response.ok) {
+      throw new Error(data.error?.message || `Error API: ${response.status}`);
     }
 
-    procesarItems(todasItems);
-  };
-  reader.readAsArrayBuffer(file);
-}
+    // Extraer texto de la respuesta
+    const texto = data.content
+      .filter(b => b.type === "text")
+      .map(b => b.text)
+      .join("")
+      .trim();
 
-// ── PARSER PRINCIPAL ──────────────────────────────────────────────────────────
-function procesarItems(items) {
-  bombas = [];
-  let productoActual = "";
+    // Limpiar posibles backticks/markdown y parsear JSON
+    const jsonLimpio = texto.replace(/```json|```/g, "").trim();
+    const resultado  = JSON.parse(jsonLimpio);
 
-  // — Agrupar ítems en filas por proximidad Y (tolerancia 6px) ——————————————
-  // Usamos array de {yRef, items[]} en vez de object keys para evitar
-  // bugs de comparación string vs number
-  const filas = [];
-  items.forEach(item => {
-    const fila = filas.find(f => Math.abs(f.yRef - item.y) <= 6);
-    if (fila) {
-      fila.items.push(item);
+    if (!Array.isArray(resultado) || resultado.length === 0) {
+      throw new Error("La IA no devolvió datos válidos.");
+    }
+
+    bombas = resultado.map(b => ({
+      bomba:  parseInt(b.bomba, 10),
+      sabor:  b.sabor,
+      monto:  parseFloat(b.monto)
+    })).filter(b => !isNaN(b.bomba) && !isNaN(b.monto) && ["S","R","D"].includes(b.sabor));
+
+    if (bombas.length === 0) {
+      setStatus("⚠️ La IA no encontró bombas en el PDF.");
     } else {
-      filas.push({ yRef: item.y, items: [item] });
+      setStatus(`✅ ${bombas.length} bombas detectadas por IA.`);
     }
-  });
 
-  // Ordenar filas de arriba hacia abajo (y menor = más arriba)
-  filas.sort((a, b) => a.yRef - b.yRef);
+    mostrarBombas();
 
-  filas.forEach(({ items: fila }) => {
-    // Ordenar elementos de izquierda a derecha
-    fila.sort((a, b) => a.x - b.x);
-
-    const textoFila = fila.map(i => i.str).join(" ").toUpperCase();
-
-    // — Detectar producto activo ————————————————————————————————————————————
-    // La fila "Tipo de SUPER/REGULAR/DIESEL" NO tiene "Auto Serv."
-    if (/\bSUPER\b/.test(textoFila)   && !/AUTO/i.test(textoFila)) { productoActual = "S"; return; }
-    if (/\bREGULAR\b/.test(textoFila) && !/AUTO/i.test(textoFila)) { productoActual = "R"; return; }
-    if (/\bDIESEL\b/.test(textoFila)  && !/AUTO/i.test(textoFila)) { productoActual = "D"; return; }
-
-    if (!productoActual) return;
-
-    // — La fila debe contener "Auto Serv." (x entre 70 y 115) —————————————
-    const tieneAuto = fila.some(i => i.x >= 70 && i.x <= 115 && /auto/i.test(i.str));
-    if (!tieneAuto) return;
-
-    // — ID de bomba: número entero 1–50 en x entre 20 y 70 ————————————————
-    const idItem = fila.find(i => i.x >= 20 && i.x <= 70 && /^\d+$/.test(i.str));
-    if (!idItem) return;
-    const bomba = parseInt(idItem.str, 10);
-    if (isNaN(bomba) || bomba < 1 || bomba > 50) return;
-
-    // — DIF USD: el ítem más a la derecha con x ≥ 690 ————————————————————
-    const difItems = fila.filter(i => i.x >= 690);
-    if (!difItems.length) return;
-    difItems.sort((a, b) => b.x - a.x);
-    const usdStr = difItems[0].str.replace(/[$,\s]/g, "");
-    const monto  = parseFloat(usdStr);
-    if (isNaN(monto)) return;
-
-    bombas.push({ bomba, sabor: productoActual, monto });
-  });
-
-  if (bombas.length === 0) {
-    setStatus("⚠️ No se detectaron bombas. Verifica el PDF.");
-  } else {
-    setStatus(`✅ ${bombas.length} bombas detectadas.`);
+  } catch (err) {
+    console.error(err);
+    setStatus(`❌ Error: ${err.message}`);
   }
-
-  mostrarBombas();
 }
 
 // ── MOSTRAR BOMBAS ────────────────────────────────────────────────────────────
