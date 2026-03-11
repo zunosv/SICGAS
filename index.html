@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SICGAS — Robot Facturación</title>
 <link rel="manifest" href="manifest.json">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow+Condensed:wght@400;600;700&display=swap');
@@ -159,7 +160,7 @@
 <header>
   <div>
     <div class="logo">SICGAS</div>
-    <div class="subtitle">Robot de Facturación · v3.0 IA</div>
+    <div class="subtitle">Robot de Facturación · v3.2</div>
   </div>
   <div class="dot"></div>
 </header>
@@ -185,16 +186,6 @@
       Coloca el .exe en la misma carpeta que <span>facturas.txt</span><br>
       Presiona <span>Win+F10</span> para iniciar · <span>ESC</span> para detener
     </div>
-  </div>
-
-
-  <!-- API KEY -->
-  <div class="card">
-    <div class="card-title">&#x1F511; API Key de Anthropic</div>
-    <div class="row">
-      <input type="password" id="apiKey" placeholder="sk-ant-..." style="flex:1;min-width:200px;background:#0d0f12;border:1px solid var(--accent);border-radius:3px;color:var(--accent);padding:10px 14px;font-family:'Share Tech Mono',monospace;font-size:13px;outline:none;">
-    </div>
-    <div class="bac-hint">Se guarda en tu navegador. Obtu00e9nla en <a href="https://console.anthropic.com" target="_blank" style="color:var(--accent)">console.anthropic.com</a></div>
   </div>
 
   <!-- PASO 1: PDF -->
@@ -231,6 +222,7 @@
 
 </main>
 
+<script>pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";</script>
 <script src="app.js"></script>
 </body>
 </html>
