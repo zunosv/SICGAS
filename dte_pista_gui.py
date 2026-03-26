@@ -241,7 +241,7 @@ def cargar_carpeta(carpeta):
 
 
 def formatear_ticket(d):
-    A = 48
+    A = 42
     SEP = "*" * A
     EQ  = "=" * A
     DA  = "-" * A
@@ -591,16 +591,16 @@ class DTEApp(tk.Tk):
         canvas_outer.pack(fill="both", expand=True, padx=12, pady=(0, 16))
 
         # Papel con sombra (borde gris) + margen interno
-        ticket_paper = tk.Frame(canvas_outer, bg="#c8c8c8")
+        ticket_paper = tk.Frame(canvas_outer, bg="#aaaaaa")
         ticket_paper.pack(anchor="n", pady=6)
-        ticket_inner = tk.Frame(ticket_paper, bg="#fafaf8", padx=16, pady=12)
+        ticket_inner = tk.Frame(ticket_paper, bg="#ffffff", padx=16, pady=12)
         ticket_inner.pack(padx=2, pady=2)
 
         self._ticket_view = scrolledtext.ScrolledText(
-            ticket_inner, bg="#fafaf8", fg="#111",
+            ticket_inner, bg="#ffffff", fg="#000000",
             font=("Courier New", 10), relief="flat", bd=0,
             state="disabled", wrap="none",
-            width=50, height=36,
+            width=44, height=36,
             highlightthickness=0
         )
         self._ticket_view.pack()
