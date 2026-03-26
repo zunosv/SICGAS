@@ -573,16 +573,37 @@ class DTEApp(tk.Tk):
         ticket_frame = tk.Frame(body, bg=C["bg"])
         ticket_frame.pack(side="right", fill="both", expand=True)
 
-        tk.Label(ticket_frame, text="Vista de ticket",
-                 bg=C["bg"], fg=C["muted"], font=FONT_SANS).pack(anchor="w", padx=16, pady=(8,2))
+        # Header con botón imprimir
+        ticket_header = tk.Frame(ticket_frame, bg=C["bg"])
+        ticket_header.pack(fill="x", padx=16, pady=(8, 2))
+        tk.Label(ticket_header, text="Vista de ticket",
+                 bg=C["bg"], fg=C["muted"], font=FONT_SANS).pack(side="left")
+        self._btn_print = tk.Button(
+            ticket_header, text="\U0001f5a8  Imprimir",
+            bg=C["green"], fg="white", font=FONT_BOLD,
+            relief="flat", cursor="hand2", padx=12, pady=3,
+            state="disabled", command=self._imprimir_ticket
+        )
+        self._btn_print.pack(side="right")
+
+        # Área scrolleable para centrar el papel
+        canvas_outer = tk.Frame(ticket_frame, bg=C["bg"])
+        canvas_outer.pack(fill="both", expand=True, padx=12, pady=(0, 16))
+
+        # Papel con sombra (borde gris) + margen interno
+        ticket_paper = tk.Frame(canvas_outer, bg="#c8c8c8")
+        ticket_paper.pack(anchor="n", pady=6)
+        ticket_inner = tk.Frame(ticket_paper, bg="#fafaf8", padx=16, pady=12)
+        ticket_inner.pack(padx=2, pady=2)
 
         self._ticket_view = scrolledtext.ScrolledText(
-            ticket_frame, bg="#fafaf8", fg="#111",
+            ticket_inner, bg="#fafaf8", fg="#111",
             font=("Courier New", 10), relief="flat", bd=0,
             state="disabled", wrap="none",
-            width=52
+            width=50, height=36,
+            highlightthickness=0
         )
-        self._ticket_view.pack(fill="both", expand=True, padx=16, pady=(0,16))
+        self._ticket_view.pack()
 
         self._resultados = []   # lista de registros filtrados
 
@@ -762,12 +783,66 @@ class DTEApp(tk.Tk):
         idx = sel[0]
         if idx >= len(self._resultados):
             return
-        d = self._resultados[idx]
-        ticket = formatear_ticket(d)
+        self._registro_activo = self._resultados[idx]
+        ticket = formatear_ticket(self._registro_activo)
         self._ticket_view.config(state="normal")
         self._ticket_view.delete("1.0", "end")
         self._ticket_view.insert("end", ticket)
         self._ticket_view.config(state="disabled")
+        self._btn_print.config(state="normal")
+
+    def _imprimir_ticket(self):
+        """Abre ventana de impresion del ticket via HTML temporal."""
+        if not hasattr(self, "_registro_activo") or not self._registro_activo:
+            return
+
+        d = self._registro_activo
+        ticket_txt = formatear_ticket(d)
+        # Escapar HTML
+        import html as htmlmod
+        ticket_html = htmlmod.escape(ticket_txt).replace("\n", "<br>")
+
+        html_content = f"""<!DOCTYPE html>
+<html><head>
+<meta charset="UTF-8">
+<style>
+  @page {{
+    size: 80mm auto;
+    margin: 4mm 3mm;
+  }}
+  * {{ margin:0; padding:0; box-sizing:border-box; }}
+  body {{
+    font-family: 'Courier New', monospace;
+    font-size: 9pt;
+    line-height: 1.45;
+    width: 72mm;
+    color: #000;
+    background: #fff;
+  }}
+  pre {{
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: inherit;
+    font-size: inherit;
+  }}
+</style>
+<script>window.onload = function(){{ window.print(); }};</script>
+</head>
+<body><pre>{ticket_txt}</pre></body></html>"""
+
+        import tempfile, os, subprocess, sys
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".html", delete=False,
+            encoding="utf-8"
+        ) as f:
+            f.write(html_content)
+            tmp_path = f.name
+
+        # Abrir en el navegador predeterminado (que lanza el diálogo de impresión)
+        if sys.platform == "win32":
+            os.startfile(tmp_path)
+        else:
+            subprocess.Popen(["xdg-open", tmp_path])
 
 
 # ══════════════════════════════════════════════════════════════════
