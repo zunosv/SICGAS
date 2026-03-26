@@ -246,95 +246,139 @@ def formatear_ticket(d):
     EQ  = "=" * A
     DA  = "-" * A
 
-    def center(t):   return str(t).center(A)
+    def center(t): return str(t).center(A)
+
+    def wrap_lines(texto, ancho):
+        palabras = str(texto or "").split()
+        lineas, cur = [], ""
+        for w in palabras:
+            if len(cur) + len(w) + (1 if cur else 0) <= ancho:
+                cur += (" " if cur else "") + w
+            else:
+                if cur: lineas.append(cur)
+                cur = w
+        if cur: lineas.append(cur)
+        return lineas or [""]
+
     def kv(k, v):
-        pre = f"{k}: "
+        pre = k + ": "
         resto = A - len(pre)
-        v = str(v or "")
-        lineas = [v[i:i+resto] for i in range(0, max(len(v), 1), max(resto, 1))]
-        out = pre + lineas[0]
-        for l in lineas[1:]:
-            out += "\n" + " " * len(pre) + l
+        partes = wrap_lines(str(v or ""), max(resto, 10))
+        out = pre + partes[0]
+        for p in partes[1:]:
+            out += "\n" + " " * len(pre) + p
         return out
+
     def lr(a, b):
         sp = A - len(str(a)) - len(str(b))
-        return f"{a}{' '*max(1,sp)}{b}"
+        return str(a) + chr(32) * max(1, sp) + str(b)
+
+    # Detectar CCF (lleva datos cliente) vs FAC (consumidor final)
+    tipo_dte = str(d.get("tipo_doc") or "").upper().strip()
+    cli_nit  = str(d.get("cli_nit")  or "").strip()
+    cli_nrc  = str(d.get("cli_nrc")  or "").strip()
+    cli_nomb = str(d.get("cli_nombre") or "").strip()
+    es_ccf   = (tipo_dte == "02") or bool(cli_nit) or bool(cli_nrc)
+    if cli_nomb and "CONSUMIDOR" not in cli_nomb.upper():
+        es_ccf = True
+    tipo_map = {"01": "FAC", "02": "CCF", "03": "CCF", "04": "NR",
+                "05": "NR",  "06": "GP",  "07": "CR",  "11": "FAC"}
+    tipo_lbl = tipo_map.get(tipo_dte, tipo_dte) if tipo_dte else ""
 
     lineas = []
+
+    # Cabecera DTE
     if d.get("cod_gen"):    lineas += ["CODIGO GENERACION:", d["cod_gen"]]
-    if d.get("no_control"): lineas += [kv("NO CONTROL", d["no_control"])]
-    if d.get("sello"):      lineas += [kv("SELLO", d["sello"])]
+    if d.get("no_control"): lineas += ["NO CONTROL:", d["no_control"]]
+    if d.get("sello"):      lineas += ["SELLO:", d["sello"]]
     lineas += [SEP]
 
-    biz = d.get("biz_nombre", "RAMIREZ VENTURA S.A. DE C.V.")
-    lineas += [center(f"** {biz} **")]
-    suc = d.get("sucursal", "")
+    # Emisor
+    lineas += [center("**            GrupoRVQ             **")]
+    biz = d.get("biz_nombre") or "RAMIREZ VENTURA S.A. DE C.V."
+    lineas += [center("** " + biz + " **")]
+    suc = d.get("sucursal") or ""
     if suc:
         if not suc.upper().startswith("TEXACO"):
             suc = "TEXACO " + suc
         lineas += [center(suc)]
-    if d.get("biz_dir"):   lineas += [center(d["biz_dir"])]
-    if d.get("biz_nrc"):   lineas += [kv("NRC", d["biz_nrc"])]
-    if d.get("biz_nit"):   lineas += [kv("NIT", d["biz_nit"])]
-    if d.get("biz_giro"):  lineas += [kv("GIRO", d["biz_giro"])]
+    if d.get("biz_dir"):
+        for l in wrap_lines("DIR: " + d["biz_dir"], A):
+            lineas += [l]
+    if d.get("biz_nrc"): lineas += ["NRC: " + d["biz_nrc"]]
+    if d.get("biz_nit"): lineas += ["NIT: " + d["biz_nit"]]
+    if d.get("biz_giro"):
+        for l in wrap_lines("GIRO: " + d["biz_giro"], A):
+            lineas += [l]
+    lineas += [SEP]
 
-    lineas += [SEP, center("*** DATOS DEL CLIENTE ***"), SEP]
-    if d.get("cli_nrc"):    lineas += [kv("NRC",    d["cli_nrc"])]
-    if d.get("cli_nit"):    lineas += [kv("NIT",    d["cli_nit"])]
-    if d.get("cli_nombre"): lineas += [kv("NOMBRE", d["cli_nombre"])]
-    if d.get("cli_dir"):    lineas += [kv("DIR",    d["cli_dir"])]
-    if d.get("cli_tel"):    lineas += [kv("TEL",    d["cli_tel"])]
-    if d.get("cli_correo"): lineas += [kv("CORREO", d["cli_correo"])]
+    # Datos del cliente - solo CCF o con NIT/NRC
+    if es_ccf:
+        lineas += [center("*** DATOS DEL CLIENTE ***"), SEP]
+        if cli_nrc:             lineas += ["NRC: " + cli_nrc]
+        if cli_nit:             lineas += ["NIT: " + cli_nit]
+        if cli_nomb:            lineas += [kv("NOMBRE", cli_nomb)]
+        if d.get("cli_dir"):
+            for l in wrap_lines("DIR: " + d["cli_dir"], A):
+                lineas += [l]
+        if d.get("cli_tel"):    lineas += ["TEL: " + d["cli_tel"]]
+        if d.get("cli_correo"): lineas += [kv("CORREO", d["cli_correo"])]
+        lineas += [SEP]
 
-    lineas += [SEP, center("NO ES UN DOCUMENTO FISCAL"),
-               center("PARA CONSULTAS: soporte.dte@gruporvq.com"),
+    # Aviso fiscal
+    lineas += [center("NO ES UN DOCUMENTO FISCAL"),
+               center("PARA CONSULTAS ESCRIBE AL CORREO"),
+               center("soporte.dte@gruporvq.com"),
                center("2522-8849"), SEP]
 
-    fh = fmt_fecha(d.get("fecha",""))
-    if d.get("hora"): fh += " " + d["hora"]
-    if d.get("empleado"): fh = lr(fh, f"EMPLEADO: {d['empleado']}")
+    # Fecha, empleado, tipo, caja, no_unico
+    fh = fmt_fecha(d.get("fecha", ""))
+    if d.get("hora"):     fh += " " + d["hora"]
+    if d.get("empleado"): fh = lr(fh, "EMPLEADO: " + d["empleado"])
     lineas += [fh]
-
-    tipo = d.get("tipo_doc","")
-    caja = d.get("caja","")
-    nou  = d.get("no_unico","")
+    tipo = tipo_lbl or tipo_dte
+    caja = d.get("caja", "")
+    nou  = d.get("no_unico", "")
     if tipo or caja:
-        lineas += [lr(f"TIPO DOC: {tipo}" if tipo else "", f"CAJA: {caja}" if caja else "")]
+        lineas += [lr("TIPO DOC: " + tipo if tipo else "",
+                      "CAJA: " + caja     if caja else "")]
     if nou:
-        lineas += [f"#NO_UNICO: {nou}"]
-
+        lineas += [lr("#NO_UNICO: " + nou, "")]
     lineas += [DA]
+
+    # Items
     items = d.get("items") or []
     if items:
-        lineas += [center("DETALLE"), DA]
         for it in items:
             desc  = it.get("descripcion") or it.get("nombre") or ""
-            cant  = it.get("cantidad", 1)
+            cant  = float(it.get("cantidad") or 1)
             prec  = float(it.get("precioUni") or it.get("precio") or 0)
             monto = float(it.get("ventaGravada") or it.get("montoItem") or cant * prec)
-            lineas += [desc, lr(f"{cant:.4g}x{prec:.2f}", f"${monto:.2f}")]
+            cant_s = (str(round(cant, 4)).rstrip('0').rstrip('.')
+                      if cant != int(cant) else str(int(cant)))
+            for l in wrap_lines(desc, A):
+                lineas += [l]
+            lineas += [lr("  " + cant_s + "x$" + format(prec, ".2f"),
+                          "$" + format(monto, ".2f"))]
         lineas += [DA]
 
-    lineas += ["", lr("TOTAL:", f"${d.get('total',0):.2f}"), EQ]
+    # Total y pagos
+    lineas += ["", lr("TOTAL:", "$" + format(d.get("total", 0), ".2f")), DA]
     lineas += [center("## FORMAS DE PAGO ##"), DA]
-    cod_map = {"01":"EFE","02":"TRJ","03":"CHQ","04":"TRF","05":"CRD"}
+    cod_map = {"01": "EFE", "02": "TRJ", "03": "CHQ", "04": "TRF", "05": "CRD"}
     pagos = d.get("pagos") or []
     if pagos:
         for p in pagos:
-            cod = str(p.get("codigo","01"))
-            lbl = cod_map.get(cod, cod.upper())
+            cod   = str(p.get("codigo", "01"))
+            lbl   = cod_map.get(cod, cod.upper())
             monto = float(p.get("montoPago") or p.get("monto") or 0)
-            lineas += [lr(f"{lbl}:", f"${monto:.2f}")]
+            lineas += [lr(lbl + ":", "$" + format(monto, ".2f"))]
     else:
-        lineas += [lr("EFE:", f"${d.get('total',0):.2f}")]
-    lineas += [EQ, center("Documento DTE"), ""]
+        lineas += [lr("EFE:", "$" + format(d.get("total", 0), ".2f"))]
+    lineas += [EQ, center("Documento DTE"), center("... V0.4.0.9 ..."), EQ, ""]
 
     return "\n".join(lineas)
 
-
-# ══════════════════════════════════════════════════════════════════
-#  GUI
-# ══════════════════════════════════════════════════════════════════
 
 class DTEApp(tk.Tk):
     def __init__(self):
